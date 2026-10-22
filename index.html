@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Famy Municipal Directory</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Supabase Client -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen p-4 sm:p-6">
+
+    <div class="max-w-7xl mx-auto">
+        <!-- Header -->
+        <header class="mb-6">
+            <h1 class="text-3xl font-extrabold tracking-tight">Municipal Directory</h1>
+            <p class="text-slate-400 text-sm mt-1">Filter by department tabs or search by name, position, or organization</p>
+        </header>
+
+        <!-- Search Bar -->
+        <div class="flex flex-col md:flex-row justify-between items-center gap-4 mb-6">
+            <input type="text" id="searchInput" placeholder="Search contacts..." class="w-full md:w-96 bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500 shadow-inner">
+        </div>
+
+        <!-- Dynamic Category Tabs -->
+        <div id="categoryTabs" class="flex flex-wrap gap-2 mb-8 overflow-x-auto pb-2">
+            <!-- Populated dynamically -->
+        </div>
+
+        <!-- Directory Grid -->
+        <div id="directoryGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <p class="text-slate-500 col-span-full text-center py-12">Loading directory...</p>
+        </div>
+    </div>
+
+    <script>
+        const SUPABASE_URL = "https://dhmaxsirygfxyfwdxstk.supabase.co";
+        const SUPABASE_ANON_KEY = "sb_publishable_NuVn1CMBYkXLlh2sRZhXlg_fYNfiJ-1"; 
+        
+        const dbClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        let contacts = [];
+        let categories = [];
+        let currentTab = 'ALL';
+
+        async function init() {
+            const grid = document.getElementById('directoryGrid');
+            try {
+                // 1. Fetch Categories
+                let { data: catRes, error: catErr } = await dbClient.from('categories').select('*');
+                if (catErr) console.warn("Categories fetch warning:", catErr);
+                
+                categories = (catRes && catRes.length > 0) ? catRes : [
+                    { name: 'ALL' }, { name: 'I.C.E HOTLINES' }, { name: 'MDRRMO' }, 
+                    { name: 'PNP' }, { name: 'BFP' }, { name: 'LGU' }, { name: 'RHU' }, 
+                    { name: 'ACDV (Volunteers)' }, { name: 'BARANGAY' }, { name: 'SCHOOL' }
+                ];
+                renderTabs();
+
+                // 2. Fetch Directory Contacts
+                let { data: contactRes, error: contactErr } = await dbClient.from('directory').select('*').order('name');
+                
+                if (contactErr) {
+                    console.error("Directory Fetch Error:", contactErr);
+                    grid.innerHTML = `<p class="text-red-400 col-span-full text-center py-12">Error loading directory: ${contactErr.message}</p>`;
+                    return;
+                }
+
+                contacts = contactRes || [];
+                renderCards(contacts);
+
+            } catch (err) {
+                console.error("Unexpected error:", err);
+                grid.innerHTML = `<p class="text-red-400 col-span-full text-center py-12">Failed to connect to directory database.</p>`;
+            }
+        }
+
+        function renderTabs() {
+            const container = document.getElementById('categoryTabs');
+            if (!container) return;
+            container.innerHTML = '';
+            
+            categories.forEach(cat => {
+                const btn = document.createElement('button');
+                const active = currentTab === cat.name;
+                btn.className = `px-4 py-2 rounded-lg text-sm font-semibold transition shadow-sm ${active ? 'bg-blue-600 text-white' : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'}`;
+                btn.innerText = cat.name;
+                btn.onclick = () => {
+                    currentTab = cat.name;
+                    renderTabs();
+                    filterContacts();
+                };
+                container.appendChild(btn);
+            });
+        }
+
+        function renderCards(data) {
+            const grid = document.getElementById('directoryGrid');
+            grid.innerHTML = '';
+
+            if (data.length === 0) {
+                grid.innerHTML = `<p class="text-slate-500 col-span-full text-center py-12">No contacts found in this category.</p>`;
+                return;
+            }
+
+            data.forEach(c => {
+                const card = document.createElement('div');
+                card.className = 'bg-slate-900 border border-slate-800/80 rounded-2xl p-5 flex flex-col justify-between shadow-lg relative overflow-hidden';
+                
+                // Pre-formatted SMS body: "ALERT : Name"
+                const smsMessage = encodeURIComponent(`ALERT : ${c.name} - `);
+                const smsLink = `sms:${c.phone_number}?body=${smsMessage}`;
+
+                card.innerHTML = `
+                    <div>
+                        <div class="flex justify-between items-start mb-3">
+                            <span class="bg-blue-950 text-blue-400 border border-blue-900/50 text-xs px-3 py-1 rounded-md font-bold uppercase tracking-wider">${c.category || 'GENERAL'}</span>
+                            ${c.status === 'Resigned' ? '<span class="bg-amber-950 text-amber-400 border border-amber-900 text-xs px-2 py-0.5 rounded">Resigned</span>' : ''}
+                        </div>
+                        <h3 class="text-lg font-bold text-white mb-1">${c.name}</h3>
+                        <p class="text-sm text-slate-400 mb-4">${c.role || 'Municipal Official'}</p>
+                        
+                        <div class="space-y-1.5 text-sm text-slate-300 mb-6">
+                            <div class="flex items-center gap-2">
+                                <span class="text-red-400 font-semibold">Phone:</span> 
+                                <a href="${smsLink}" class="hover:underline">${c.phone_number}</a>
+                            </div>
+                            ${c.address ? `<div class="flex items-center gap-2 text-xs text-slate-400"><span class="text-red-400">Loc:</span> ${c.address}</div>` : ''}
+                            ${c.facebook_link ? `<div class="flex items-center gap-2 text-xs text-blue-400"><span class="text-blue-400">FB:</span> <a href="${c.facebook_link}" target="_blank" class="hover:underline">Facebook Profile</a></div>` : ''}
+                        </div>
+                    </div>
+
+                    <div class="pt-3 border-t border-slate-800/60 flex justify-end">
+                        <a href="${smsLink}" class="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-4 py-2 rounded-xl transition flex items-center gap-1.5 shadow-sm">
+                            📱 Send Text Alert
+                        </a>
+                    </div>
+                `;
+                grid.appendChild(card);
+            });
+        }
+
+        document.getElementById('searchInput').addEventListener('input', filterContacts);
+
+        function filterContacts() {
+            const query = document.getElementById('searchInput').value.toLowerCase();
+            const filtered = contacts.filter(c => {
+                const matchesTab = currentTab === 'ALL' || c.category === currentTab;
+                const matchesSearch = c.name.toLowerCase().includes(query) || (c.role && c.role.toLowerCase().includes(query)) || c.phone_number.includes(query);
+                return matchesTab && matchesSearch;
+            });
+            renderCards(filtered);
+        }
+
+        init();
+    </script>
+</body>
+</html>
